@@ -13,6 +13,7 @@
 #include <dirent.h>
 #include <getopt.h>
 #include <errno.h>
+#include <inttypes.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -50,10 +51,32 @@ typedef struct {
     int error;
 } file_checksum_t;
 
+typedef struct {
+    char filename[MAX_PATH_LEN];
+    long size;
+    char checksum[129];
+    uint64_t nonce;
+    char pow_hash[129];
+    int complexity;
+} ledger_entry_t;
+
+typedef struct {
+    int total_entries;
+    int verified_entries;
+    int failed_entries;
+    int missing_files;
+    int file_mismatch;
+    int pow_failures;
+    int chain_breaks;
+    int complexity_failures;
+} verification_stats_t;
+
 typedef enum {
     MODE_NONE,
     MODE_POW,
-    MODE_CHECKSUM
+    MODE_CHECKSUM,
+    MODE_LEDGER,
+    MODE_VERIFY
 } operation_mode_t;
 
 pow_result_t pow_result;
@@ -138,6 +161,7 @@ void* pow_worker(void *arg) {
             if (strncmp(hash_hex, prefix, args->difficulty) == 0) {
                 if (!atomic_exchange(&pow_result.found, 1)) {
                     strncpy(pow_result.result_hash, hash_hex, HASH_HEX_LEN);
+                    pow_result.result_hash[HASH_HEX_LEN] = '\0';
                     pow_result.result_nonce = nonce;
                 }
                 return NULL;
@@ -262,23 +286,396 @@ void print_json_multiple(const file_checksum_t *results, int count) {
     printf("}\n");
 }
 
+int read_last_ledger_entry(const char *ledger_file, ledger_entry_t *entry) {
+    FILE *file = fopen(ledger_file, "r");
+    if (!file) {
+        return 0;
+    }
+    
+    char line[2048];
+    char last_line[2048] = "";
+    
+    while (fgets(line, sizeof(line), file)) {
+        if (line[0] != '#' && strlen(line) > 10) {
+            strncpy(last_line, line, sizeof(last_line) - 1);
+            last_line[sizeof(last_line) - 1] = '\0';
+        }
+    }
+    fclose(file);
+    
+    if (strlen(last_line) == 0) {
+        return 0;
+    }
+    
+    char *token = strtok(last_line, ",");
+    if (!token) return 0;
+    strncpy(entry->filename, token, MAX_PATH_LEN - 1);
+    
+    token = strtok(NULL, ",");
+    if (!token) return 0;
+    entry->size = atol(token);
+    
+    token = strtok(NULL, ",");
+    if (!token) return 0;
+    strncpy(entry->checksum, token, 128);
+    entry->checksum[128] = '\0';
+    
+    token = strtok(NULL, ",");
+    if (!token) return 0;
+    entry->nonce = strtoull(token, NULL, 10);
+    
+    token = strtok(NULL, ",");
+    if (!token) return 0;
+    strncpy(entry->pow_hash, token, 128);
+    entry->pow_hash[128] = '\0';
+    
+    token = strtok(NULL, ",");
+    if (!token) return 0;
+    entry->complexity = atoi(token);
+    
+    
+    return 1;
+}
+
+void write_ledger_header(const char *ledger_file) {
+    FILE *file = fopen(ledger_file, "w");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot create ledger file '%s'\n", ledger_file);
+        return;
+    }
+    
+    fprintf(file, "# ZenTransfer Ledger version 1.0\n");
+    fprintf(file, "filename,size,checksum,nonce,pow_hash,complexity\n");
+    fclose(file);
+}
+
+void append_ledger_entry(const char *ledger_file, const ledger_entry_t *entry) {
+    FILE *file = fopen(ledger_file, "a");
+    if (!file) {
+        fprintf(stderr, "Error: Cannot append to ledger file '%s'\n", ledger_file);
+        return;
+    }
+    
+    fprintf(file, "%s,%ld,%s,%lu,%s,%d\n",
+            entry->filename,
+            entry->size,
+            entry->checksum,
+            entry->nonce,
+            entry->pow_hash,
+            entry->complexity);
+    fclose(file);
+}
+
+void create_null_entry(ledger_entry_t *entry) {
+    strncpy(entry->filename, "NULL", MAX_PATH_LEN - 1);
+    entry->size = 0;
+    memset(entry->checksum, '0', 128);
+    entry->checksum[128] = '\0';
+    entry->nonce = 0;
+    memset(entry->pow_hash, '0', 128);
+    entry->pow_hash[128] = '\0';
+    entry->complexity = 0;
+}
+
+int calculate_ledger_pow(const char *prev_hash, const char *current_data, int difficulty, int num_threads, uint64_t *result_nonce, char *result_hash) {
+    atomic_store(&pow_result.found, 0);
+    pow_result.result_nonce = 0;
+    
+    pthread_t threads[MAX_THREADS];
+    thread_args_t args[MAX_THREADS];
+    
+    for (int t = 0; t < num_threads; t++) {
+        strncpy(args[t].previous_entry, prev_hash, HASH_HEX_LEN);
+        strncpy(args[t].current_entry, current_data, HASH_HEX_LEN);
+        args[t].difficulty = difficulty;
+        args[t].thread_id = t;
+        args[t].num_threads = num_threads;
+        pthread_create(&threads[t], NULL, pow_worker, &args[t]);
+    }
+    
+    for (int t = 0; t < num_threads; t++) {
+        pthread_join(threads[t], NULL);
+    }
+    
+    *result_nonce = pow_result.result_nonce;
+    strncpy(result_hash, pow_result.result_hash, 128);
+    result_hash[128] = '\0';
+    
+    return 1;
+}
+
+void print_progress(const char *filename, int current, int total, double elapsed) {
+    printf("[%d/%d] Processing: %s (%.2fs)\n", current, total, filename, elapsed);
+    fflush(stdout);
+}
+
+int read_all_ledger_entries(const char *ledger_file, ledger_entry_t **entries, int *count) {
+    FILE *file = fopen(ledger_file, "r");
+    if (!file) {
+        return -1;
+    }
+    
+    *entries = malloc(MAX_FILES * sizeof(ledger_entry_t));
+    if (!*entries) {
+        fclose(file);
+        return -1;
+    }
+    
+    char line[2048];
+    *count = 0;
+    
+    while (fgets(line, sizeof(line), file) && *count < MAX_FILES) {
+        if (line[0] == '#' || strlen(line) < 10 || strstr(line, "filename,size,checksum") != NULL) {
+            continue;
+        }
+        
+        char *line_copy = strdup(line);
+        if (!line_copy) continue;
+        
+        char *token = strtok(line_copy, ",");
+        if (!token) { free(line_copy); continue; }
+        strncpy((*entries)[*count].filename, token, MAX_PATH_LEN - 1);
+        
+        token = strtok(NULL, ",");
+        if (!token) { free(line_copy); continue; }
+        (*entries)[*count].size = atol(token);
+        
+        token = strtok(NULL, ",");
+        if (!token) { free(line_copy); continue; }
+        strncpy((*entries)[*count].checksum, token, 128);
+        (*entries)[*count].checksum[128] = '\0';
+        
+        token = strtok(NULL, ",");
+        if (!token) { free(line_copy); continue; }
+        (*entries)[*count].nonce = strtoull(token, NULL, 10);
+        
+        token = strtok(NULL, ",");
+        if (!token) { free(line_copy); continue; }
+        strncpy((*entries)[*count].pow_hash, token, 128);
+        (*entries)[*count].pow_hash[128] = '\0';
+        
+        token = strtok(NULL, ",");
+        if (!token) { free(line_copy); continue; }
+        (*entries)[*count].complexity = atoi(token);
+        
+        
+        free(line_copy);
+        (*count)++;
+    }
+    
+    fclose(file);
+    return 0;
+}
+
+int verify_pow_hash(const char *prev_hash, const char *current_data, uint64_t nonce, const char *expected_hash, int complexity) {
+    char data[512];
+    snprintf(data, sizeof(data), "%s%s%lu", prev_hash, current_data, nonce);
+    
+    char computed_hash[129];
+    sha512_hex(data, computed_hash);
+    
+    if (strcmp(computed_hash, expected_hash) != 0) {
+        return 0;
+    }
+    
+    char prefix[65];
+    memset(prefix, '0', complexity);
+    prefix[complexity] = '\0';
+    
+    return strncmp(computed_hash, prefix, complexity) == 0;
+}
+
+int verify_file_checksum(const char *filepath, const char *expected_checksum) {
+    if (!is_regular_file(filepath)) {
+        return -1;
+    }
+    
+    char computed_checksum[129];
+    sha512_file(filepath, computed_checksum);
+    
+    if (computed_checksum[0] == '\0') {
+        return -1;
+    }
+    
+    return strcmp(computed_checksum, expected_checksum) == 0;
+}
+
+int count_leading_zeros(const char *hash) {
+    int count = 0;
+    for (int i = 0; i < 128 && hash[i] == '0'; i++) {
+        count++;
+    }
+    return count;
+}
+
+void print_strength_indicator(int complexity) {
+    printf(" ");
+    for (int i = 0; i < complexity; i++) {
+        printf("✓");
+    }
+}
+
+void print_verification_stats(const verification_stats_t *stats) {
+    printf("\n=== Verification Results ===\n");
+    printf("Total entries: %d\n", stats->total_entries);
+    printf("Verified entries: %d\n", stats->verified_entries);
+    printf("Failed entries: %d\n", stats->failed_entries);
+    
+    if (stats->missing_files > 0) {
+        printf("Missing files: %d\n", stats->missing_files);
+    }
+    if (stats->file_mismatch > 0) {
+        printf("File checksum mismatches: %d\n", stats->file_mismatch);
+    }
+    if (stats->pow_failures > 0) {
+        printf("POW verification failures: %d\n", stats->pow_failures);
+    }
+    if (stats->chain_breaks > 0) {
+        printf("Chain breaks: %d\n", stats->chain_breaks);
+    }
+    if (stats->complexity_failures > 0) {
+        printf("Complexity verification failures: %d\n", stats->complexity_failures);
+    }
+    
+    if (stats->failed_entries == 0) {
+        printf("\n✓ Ledger verification PASSED\n");
+    } else {
+        printf("\n✗ Ledger verification FAILED\n");
+    }
+}
+
+int run_ledger_verification(const char *ledger_file, int file_verify, int ignore_errors) {
+    ledger_entry_t *entries;
+    int count;
+    
+    if (read_all_ledger_entries(ledger_file, &entries, &count) != 0) {
+        fprintf(stderr, "Error: Cannot read ledger file '%s'\n", ledger_file);
+        return 1;
+    }
+    
+    if (count == 0) {
+        fprintf(stderr, "Error: Empty ledger file\n");
+        free(entries);
+        return 1;
+    }
+    
+    printf("Verifying ledger '%s' with %d entries...\n", ledger_file, count);
+    
+    verification_stats_t stats = {0};
+    stats.total_entries = count;
+    
+    for (int i = 0; i < count; i++) {
+        printf("[%d/%d] Verifying: %s ... ", i + 1, count, entries[i].filename);
+        fflush(stdout);
+        
+        int entry_valid = 1;
+        
+        if (strcmp(entries[i].filename, "NULL") != 0) {
+            char current_data[256];
+            snprintf(current_data, sizeof(current_data), "%s_%ld_%s", 
+                     entries[i].filename, entries[i].size, entries[i].checksum);
+            
+            char padded_data[129];
+            memset(padded_data, '0', 128);
+            int data_len = strlen(current_data);
+            if (data_len > 128) data_len = 128;
+            memcpy(padded_data, current_data, data_len);
+            padded_data[128] = '\0';
+            
+            char prev_hash[129];
+            if (i == 0) {
+                memset(prev_hash, '0', 128);
+                prev_hash[128] = '\0';
+            } else {
+                strncpy(prev_hash, entries[i-1].pow_hash, 128);
+                prev_hash[128] = '\0';
+            }
+            
+            if (!verify_pow_hash(prev_hash, padded_data, entries[i].nonce, entries[i].pow_hash, entries[i].complexity)) {
+                printf("POW FAILED\n");
+                stats.pow_failures++;
+                entry_valid = 0;
+            } else {
+                printf("POW OK");
+                
+                // Verify complexity by counting leading zeros
+                int actual_complexity = count_leading_zeros(entries[i].pow_hash);
+                if (actual_complexity < entries[i].complexity) {
+                    printf(", COMPLEXITY FAILED (expected: %d, actual: %d)", entries[i].complexity, actual_complexity);
+                    stats.complexity_failures++;
+                    entry_valid = 0;
+                } else {
+                    printf(", COMPLEXITY OK");
+                    print_strength_indicator(entries[i].complexity);
+                }
+            }
+            
+            if (file_verify) {
+                int file_result = verify_file_checksum(entries[i].filename, entries[i].checksum);
+                if (file_result == -1) {
+                    printf(", FILE MISSING");
+                    stats.missing_files++;
+                    if (!ignore_errors) entry_valid = 0;
+                } else if (file_result == 0) {
+                    printf(", FILE MISMATCH");
+                    stats.file_mismatch++;
+                    entry_valid = 0;
+                } else {
+                    printf(", FILE OK");
+                }
+            }
+        } else {
+            printf("NULL ENTRY OK");
+            print_strength_indicator(entries[i].complexity);
+        }
+        
+        if (entry_valid) {
+            stats.verified_entries++;
+            printf("\n");
+        } else {
+            stats.failed_entries++;
+            printf(" - FAILED\n");
+            if (!ignore_errors) {
+                printf("\nVerification stopped due to error (use -i to continue)\n");
+                break;
+            }
+        }
+    }
+    
+    print_verification_stats(&stats);
+    free(entries);
+    
+    return (stats.failed_entries > 0) ? 1 : 0;
+}
+
 void print_usage(const char *program_name) {
     printf("Usage: %s <MODE> [OPTIONS]\n", program_name);
     printf("\nModes (required):\n");
     printf("  -p, --pow <prev_hash> <next_hash>  Run proof-of-work mining\n");
     printf("  -c, --checksum <path>              Generate file checksums\n");
+    printf("  -l, --ledger <ledger_file> <path>  Maintain trusted ledger\n");
+    printf("  -v, --verify <ledger_file>         Verify ledger integrity\n");
     printf("\nPOW Mode Options:\n");
     printf("  -t, --threads <num>                Number of threads (default: %d)\n", DEFAULT_THREADS);
     printf("  -x, --complexity <num>             Difficulty level (default: %d)\n", DEFAULT_DIFFICULTY);
     printf("\nChecksum Mode Options:\n");
     printf("  -r, --recursive                    Include subdirectories (default: off)\n");
+    printf("\nLedger Mode Options:\n");
+    printf("  -t, --threads <num>                Number of threads (default: %d)\n", DEFAULT_THREADS);
+    printf("  -x, --complexity <num>             Difficulty level (default: %d)\n", DEFAULT_DIFFICULTY);
+    printf("  -r, --recursive                    Include subdirectories (default: off)\n");
+    printf("\nVerify Mode Options:\n");
+    printf("  -f, --file-verify                  Verify file checksums (default: off)\n");
+    printf("  -i, --ignore-errors                Continue on verification errors (default: off)\n");
     printf("\nGeneral:\n");
     printf("  -h, --help                         Show this help message\n");
     printf("\nExamples:\n");
     printf("  %s -p prev_hash next_hash -t 8 -x 6\n", program_name);
     printf("  %s -c myfile.txt\n", program_name);
-    printf("  %s -c /path/to/directory\n", program_name);
     printf("  %s -c /path/to/directory -r\n", program_name);
+    printf("  %s -l ledger.csv /path/to/files -t 4 -x 5\n", program_name);
+    printf("  %s -v ledger.csv\n", program_name);
+    printf("  %s -v ledger.csv -f -i\n", program_name);
 }
 
 int run_pow_mining(const char *prev_hash, const char *next_hash, int num_threads, int difficulty) {
@@ -343,22 +740,29 @@ int main(int argc, char *argv[]) {
     char *prev_hash = NULL;
     char *next_hash = NULL;
     char *target_path = NULL;
+    char *ledger_file = NULL;
     int num_threads = DEFAULT_THREADS;
     int difficulty = DEFAULT_DIFFICULTY;
     int recursive = 0;
+    int file_verify = 0;
+    int ignore_errors = 0;
     
     struct option long_options[] = {
         {"pow", required_argument, 0, 'p'},
         {"checksum", required_argument, 0, 'c'},
+        {"ledger", required_argument, 0, 'l'},
+        {"verify", required_argument, 0, 'v'},
         {"threads", required_argument, 0, 't'},
         {"complexity", required_argument, 0, 'x'},
         {"recursive", no_argument, 0, 'r'},
+        {"file-verify", no_argument, 0, 'f'},
+        {"ignore-errors", no_argument, 0, 'i'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "p:c:t:x:rh", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:c:l:v:t:x:rfih", long_options, NULL)) != -1) {
         switch (opt) {
             case 'p':
                 if (mode != MODE_NONE) {
@@ -382,6 +786,28 @@ int main(int argc, char *argv[]) {
                 mode = MODE_CHECKSUM;
                 target_path = optarg;
                 break;
+            case 'l':
+                if (mode != MODE_NONE) {
+                    fprintf(stderr, "Error: Only one mode can be specified\n");
+                    return 1;
+                }
+                mode = MODE_LEDGER;
+                ledger_file = optarg;
+                if (optind < argc) {
+                    target_path = argv[optind++];
+                } else {
+                    fprintf(stderr, "Error: Ledger mode requires ledger file and source path\n");
+                    return 1;
+                }
+                break;
+            case 'v':
+                if (mode != MODE_NONE) {
+                    fprintf(stderr, "Error: Only one mode can be specified\n");
+                    return 1;
+                }
+                mode = MODE_VERIFY;
+                ledger_file = optarg;
+                break;
             case 't':
                 num_threads = atoi(optarg);
                 break;
@@ -390,6 +816,12 @@ int main(int argc, char *argv[]) {
                 break;
             case 'r':
                 recursive = 1;
+                break;
+            case 'f':
+                file_verify = 1;
+                break;
+            case 'i':
+                ignore_errors = 1;
                 break;
             case 'h':
                 print_usage(argv[0]);
@@ -456,6 +888,117 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             break;
+            
+        case MODE_LEDGER:
+            if (!ledger_file || !target_path) {
+                fprintf(stderr, "Error: Ledger mode requires ledger file and source path\n");
+                return 1;
+            }
+            
+            ledger_entry_t last_entry;
+            int has_last_entry = read_last_ledger_entry(ledger_file, &last_entry);
+            
+            if (!has_last_entry) {
+                write_ledger_header(ledger_file);
+                create_null_entry(&last_entry);
+                append_ledger_entry(ledger_file, &last_entry);
+                printf("Created new ledger with NULL entry\n");
+            }
+            
+            file_checksum_t *files;
+            int file_count;
+            
+            if (is_regular_file(target_path)) {
+                files = malloc(sizeof(file_checksum_t));
+                if (!files) {
+                    fprintf(stderr, "Error: Memory allocation failed\n");
+                    return 1;
+                }
+                process_file(target_path, files);
+                if (files[0].error) {
+                    fprintf(stderr, "Error: Cannot process file '%s'\n", target_path);
+                    free(files);
+                    return 1;
+                }
+                file_count = 1;
+            } else if (is_directory(target_path)) {
+                files = malloc(MAX_FILES * sizeof(file_checksum_t));
+                if (!files) {
+                    fprintf(stderr, "Error: Memory allocation failed\n");
+                    return 1;
+                }
+                
+                file_count = scan_directory(target_path, files, MAX_FILES, recursive);
+                if (file_count < 0) {
+                    fprintf(stderr, "Error: Cannot read directory '%s'\n", target_path);
+                    free(files);
+                    return 1;
+                }
+            } else {
+                fprintf(stderr, "Error: '%s' is not a valid file or directory\n", target_path);
+                return 1;
+            }
+            
+            printf("Processing %d files into ledger...\n", file_count);
+            
+            for (int i = 0; i < file_count; i++) {
+                if (files[i].error) {
+                    printf("Skipping file with error: %s\n", files[i].filepath);
+                    continue;
+                }
+                
+                double start_time = current_time();
+                printf("Processing file: %s ... ", files[i].filepath);
+                fflush(stdout);
+                
+                ledger_entry_t entry;
+                strncpy(entry.filename, files[i].filepath, MAX_PATH_LEN - 1);
+                entry.size = files[i].size;
+                strncpy(entry.checksum, files[i].sha512, 128);
+                entry.checksum[128] = '\0';
+                entry.complexity = difficulty;
+                
+                char current_data[256];
+                snprintf(current_data, sizeof(current_data), "%s_%ld_%s", 
+                         entry.filename, entry.size, entry.checksum);
+                
+                char padded_data[129];
+                memset(padded_data, '0', 128);
+                int data_len = strlen(current_data);
+                if (data_len > 128) data_len = 128;
+                memcpy(padded_data, current_data, data_len);
+                padded_data[128] = '\0';
+                
+                uint64_t nonce;
+                char pow_hash[129];
+                
+                calculate_ledger_pow(last_entry.pow_hash, padded_data, difficulty, num_threads, &nonce, pow_hash);
+                
+                entry.nonce = nonce;
+                strncpy(entry.pow_hash, pow_hash, 128);
+                entry.pow_hash[128] = '\0';
+                
+                append_ledger_entry(ledger_file, &entry);
+                
+                double elapsed = current_time() - start_time;
+                printf("POW completed (nonce: %lu, time: %.2fs)\n", nonce, elapsed);
+                
+                print_progress(files[i].filepath, i + 1, file_count, elapsed);
+                
+                last_entry = entry;
+            }
+            
+            printf("\nLedger update completed. %d files processed.\n", file_count);
+            free(files);
+            break;
+            
+        case MODE_VERIFY:
+            if (!ledger_file) {
+                fprintf(stderr, "Error: Verify mode requires ledger file\n");
+                return 1;
+            }
+            
+            return run_ledger_verification(ledger_file, file_verify, ignore_errors);
             
         default:
             fprintf(stderr, "Error: Invalid mode\n");

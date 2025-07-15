@@ -68,6 +68,23 @@ make help     # Show all available targets
 ./pow_ledger -c /path/to/project -r  # Include subdirectories
 ```
 
+### Ledger Mode
+```bash
+./pow_ledger -l <ledger_file> <path>     # File or directory
+./pow_ledger -l <ledger_file> <path> -r  # Directory (recursive)
+```
+
+**Options:**
+- `-t, --threads <num>`: Number of threads (default: 4)
+- `-x, --complexity <num>`: Difficulty level (default: 5)
+- `-r, --recursive`: Include subdirectories (default: off)
+
+**Examples:**
+```bash
+./pow_ledger -l secure.csv document.pdf -t 8 -x 6
+./pow_ledger -l project.csv /path/to/project -r -t 4 -x 5
+```
+
 ### Output Format
 All operations output JSON for easy integration with Electron apps:
 
@@ -109,4 +126,36 @@ All operations output JSON for easy integration with Electron apps:
   ],
   "total_files": 1
 }
-``` 
+```
+
+**Ledger Mode:**
+- Creates/updates a CSV ledger file with ZenTransfer Ledger version 1.0 format
+- Each file entry includes: filename, size, SHA-512 checksum, nonce, POW hash, complexity
+- Displays progress during POW calculation
+- Maintains cryptographic chain linking all entries
+- Supports both individual files and directory processing
+
+### Verification Mode
+```bash
+./pow_ledger -v <ledger_file>           # Verify ledger integrity
+./pow_ledger -v <ledger_file> -f        # Verify ledger + file checksums
+./pow_ledger -v <ledger_file> -i        # Continue on errors
+./pow_ledger -v <ledger_file> -f -i     # Verify files, ignore errors
+```
+
+**Options:**
+- `-f, --file-verify`: Verify file checksums exist and match (default: off)
+- `-i, --ignore-errors`: Continue verification even if errors occur (default: off)
+
+**Examples:**
+```bash
+./pow_ledger -v secure.csv
+./pow_ledger -v project.csv -f -i
+```
+
+**Verification Mode:**
+- Reads entire ledger from start to end
+- Verifies POW hash and nonce for each entry
+- Optionally verifies file checksums if -f flag is used
+- Can continue on errors with -i flag
+- Displays progress and comprehensive results 
