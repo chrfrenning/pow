@@ -3,7 +3,7 @@
 # Compiler and flags
 CC = gcc
 CFLAGS = -Wall -Wextra -std=c99 -D_GNU_SOURCE -O2
-LDFLAGS = -lpthread -lssl -lcrypto
+LDFLAGS = -lpthread -lssl -lcrypto -lm
 
 # Project files
 TARGET = pow_ledger
