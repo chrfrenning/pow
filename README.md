@@ -1,21 +1,25 @@
 # POW Ledger
 
-A multi-purpose utility in C that combines proof-of-work mining with file checksumming capabilities, designed for use in Electron applications.
+A command line utility in C that combines file-checksumming with proof-of-work mining for building trusted ledgers.
 
 ## Features
 
 ### Proof-of-Work Mining
-- Multi-threaded proof-of-work mining with configurable difficulty
 - SHA-512 hash chain generation
-- Performance timing and statistics
+- Multi-threaded proof-of-work mining with configurable difficulty
 - Configurable thread count for optimal performance
-- Command-line interface for custom hash inputs
+- Command-line interface
 
 ### File Checksumming
 - MD5 and SHA-512 checksum generation for individual files
 - Batch processing for entire directories (recursive)
-- JSON output format for easy integration with Electron apps
+- JSON output format for easy integration
 - Cross-platform file system support
+
+### Ledgers
+- Build ledgers based on checksums and POW
+- Maintains ledgers in CSV format for append and interoperability
+- Verifies ledger integrity and indicates complexity of POW
 
 ## Building
 
@@ -27,7 +31,7 @@ make run      # Build and run
 make help     # Show all available targets
 ```
 
-## Requirements
+### Requirements
 
 - GCC compiler (or compatible: clang, MSVC)
 - OpenSSL development libraries
@@ -72,17 +76,20 @@ make help     # Show all available targets
 ```bash
 ./pow_ledger -l <ledger_file> <path>     # File or directory
 ./pow_ledger -l <ledger_file> <path> -r  # Directory (recursive)
+./pow_ledger -l <ledger_file> <path> -s <start_hash>  # Use custom start hash
 ```
 
 **Options:**
 - `-t, --threads <num>`: Number of threads (default: 4)
 - `-x, --complexity <num>`: Difficulty level (default: 5)
 - `-r, --recursive`: Include subdirectories (default: off)
+- `-s, --start-hash <hash>`: Start hash for new ledger (requires non-existing file)
 
 **Examples:**
 ```bash
 ./pow_ledger -l secure.csv document.pdf -t 8 -x 6
 ./pow_ledger -l project.csv /path/to/project -r -t 4 -x 5
+./pow_ledger -l batch.csv /path/to/files -s abc123...def456 -t 4 -x 5
 ```
 
 ### Output Format
@@ -134,6 +141,13 @@ All operations output JSON for easy integration with Electron apps:
 - Displays progress during POW calculation
 - Maintains cryptographic chain linking all entries
 - Supports both individual files and directory processing
+
+**Batch Mode with Start Hash:**
+- Use `-s, --start-hash` to specify a custom starting hash for new ledger files
+- Useful when creating POW for batches to be added to a main ledger elsewhere
+- Requires that the specified ledger file does not already exist
+- Creates a START entry instead of the default NULL entry
+- Hash must be exactly 128 characters long (SHA-512 hex format)
 
 ### Verification Mode
 ```bash

@@ -377,6 +377,17 @@ void create_null_entry(ledger_entry_t *entry) {
     entry->complexity = 0;
 }
 
+void create_start_entry(ledger_entry_t *entry, const char *start_hash) {
+    strncpy(entry->filename, "START", MAX_PATH_LEN - 1);
+    entry->size = 0;
+    memset(entry->checksum, '0', 128);
+    entry->checksum[128] = '\0';
+    entry->nonce = 0;
+    strncpy(entry->pow_hash, start_hash, 128);
+    entry->pow_hash[128] = '\0';
+    entry->complexity = 0;
+}
+
 int calculate_ledger_pow(const char *prev_hash, const char *current_data, int difficulty, int num_threads, uint64_t *result_nonce, char *result_hash) {
     atomic_store(&pow_result.found, 0);
     pow_result.result_nonce = 0;
@@ -664,6 +675,7 @@ void print_usage(const char *program_name) {
     printf("  -t, --threads <num>                Number of threads (default: %d)\n", DEFAULT_THREADS);
     printf("  -x, --complexity <num>             Difficulty level (default: %d)\n", DEFAULT_DIFFICULTY);
     printf("  -r, --recursive                    Include subdirectories (default: off)\n");
+    printf("  -s, --start-hash <hash>            Start hash for new ledger (requires non-existing file)\n");
     printf("\nVerify Mode Options:\n");
     printf("  -f, --file-verify                  Verify file checksums (default: off)\n");
     printf("  -i, --ignore-errors                Continue on verification errors (default: off)\n");
@@ -674,6 +686,7 @@ void print_usage(const char *program_name) {
     printf("  %s -c myfile.txt\n", program_name);
     printf("  %s -c /path/to/directory -r\n", program_name);
     printf("  %s -l ledger.csv /path/to/files -t 4 -x 5\n", program_name);
+    printf("  %s -l batch.csv /path/to/files -s <start_hash> -t 4 -x 5\n", program_name);
     printf("  %s -v ledger.csv\n", program_name);
     printf("  %s -v ledger.csv -f -i\n", program_name);
 }
@@ -741,6 +754,7 @@ int main(int argc, char *argv[]) {
     char *next_hash = NULL;
     char *target_path = NULL;
     char *ledger_file = NULL;
+    char *start_hash = NULL;
     int num_threads = DEFAULT_THREADS;
     int difficulty = DEFAULT_DIFFICULTY;
     int recursive = 0;
@@ -757,12 +771,13 @@ int main(int argc, char *argv[]) {
         {"recursive", no_argument, 0, 'r'},
         {"file-verify", no_argument, 0, 'f'},
         {"ignore-errors", no_argument, 0, 'i'},
+        {"start-hash", required_argument, 0, 's'},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
     
     int opt;
-    while ((opt = getopt_long(argc, argv, "p:c:l:v:t:x:rfih", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:c:l:v:t:x:rfis:h", long_options, NULL)) != -1) {
         switch (opt) {
             case 'p':
                 if (mode != MODE_NONE) {
@@ -822,6 +837,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'i':
                 ignore_errors = 1;
+                break;
+            case 's':
+                start_hash = optarg;
                 break;
             case 'h':
                 print_usage(argv[0]);
@@ -895,14 +913,39 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             
+            // Validate start_hash if provided
+            if (start_hash) {
+                if (strlen(start_hash) != HASH_HEX_LEN) {
+                    fprintf(stderr, "Error: Start hash must be %d characters long\n", HASH_HEX_LEN);
+                    return 1;
+                }
+                
+                // Check if ledger file already exists
+                FILE *check_file = fopen(ledger_file, "r");
+                if (check_file) {
+                    fclose(check_file);
+                    fprintf(stderr, "Error: Ledger file '%s' already exists. Start hash can only be used with new ledger files\n", ledger_file);
+                    return 1;
+                }
+            }
+            
             ledger_entry_t last_entry;
             int has_last_entry = read_last_ledger_entry(ledger_file, &last_entry);
             
             if (!has_last_entry) {
                 write_ledger_header(ledger_file);
-                create_null_entry(&last_entry);
-                append_ledger_entry(ledger_file, &last_entry);
-                printf("Created new ledger with NULL entry\n");
+                if (start_hash) {
+                    create_start_entry(&last_entry, start_hash);
+                    append_ledger_entry(ledger_file, &last_entry);
+                    printf("Created new ledger with START entry using provided hash\n");
+                } else {
+                    create_null_entry(&last_entry);
+                    append_ledger_entry(ledger_file, &last_entry);
+                    printf("Created new ledger with NULL entry\n");
+                }
+            } else if (start_hash) {
+                fprintf(stderr, "Error: Cannot use start hash with existing ledger file\n");
+                return 1;
             }
             
             file_checksum_t *files;
