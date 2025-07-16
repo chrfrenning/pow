@@ -1,0 +1,158 @@
+name: Windows Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a release'
+        required: false
+        default: 'true'
+        type: boolean
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+        include:
+          - arch: x64
+            msystem: MINGW64
+            mingw_prefix: mingw-w64-x86_64
+          - arch: arm64
+            msystem: CLANGARM64
+            mingw_prefix: mingw-w64-clang-aarch64
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup MSYS2
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.msystem }}
+        update: true
+        install: >-
+          base-devel
+          ${{ matrix.mingw_prefix }}-toolchain
+          ${{ matrix.mingw_prefix }}-openssl
+          ${{ matrix.mingw_prefix }}-pkg-config
+          
+    - name: Build project
+      shell: msys2 {0}
+      run: |
+        # Set environment variables for cross-compilation
+        export PKG_CONFIG_PATH="/${{ matrix.msystem }}/lib/pkgconfig"
+        export CFLAGS="-I/${{ matrix.msystem }}/include"
+        export LDFLAGS="-L/${{ matrix.msystem }}/lib"
+        
+        # Build the project
+        make clean
+        make CC=${{ matrix.msystem == 'MINGW64' && 'gcc' || 'clang' }} all
+        
+        # Create output directory
+        mkdir -p dist
+        
+        # Copy binary with architecture suffix
+        cp pow.exe dist/pow-windows-${{ matrix.arch }}.exe
+        
+        # Create a simple info file
+        echo "POW Ledger - Windows ${{ matrix.arch }} Build" > dist/pow-windows-${{ matrix.arch }}.txt
+        echo "Built on: $(date)" >> dist/pow-windows-${{ matrix.arch }}.txt
+        echo "Architecture: ${{ matrix.arch }}" >> dist/pow-windows-${{ matrix.arch }}.txt
+        echo "Compiler: ${{ matrix.msystem == 'MINGW64' && 'GCC' || 'Clang' }}" >> dist/pow-windows-${{ matrix.arch }}.txt
+        
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: pow-windows-${{ matrix.arch }}
+        path: |
+          dist/pow-windows-${{ matrix.arch }}.exe
+          dist/pow-windows-${{ matrix.arch }}.txt
+        retention-days: 30
+
+  create-release:
+    needs: build-windows
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        
+        # Copy all binaries to release directory
+        find artifacts -name "*.exe" -exec cp {} release/ \;
+        find artifacts -name "*.txt" -exec cp {} release/ \;
+        
+        # Create a combined info file
+        echo "POW Ledger - Windows Release" > release/BUILD_INFO.txt
+        echo "Built on: $(date)" >> release/BUILD_INFO.txt
+        echo "Git commit: ${{ github.sha }}" >> release/BUILD_INFO.txt
+        echo "Architectures: x64, arm64" >> release/BUILD_INFO.txt
+        echo "" >> release/BUILD_INFO.txt
+        echo "Files included:" >> release/BUILD_INFO.txt
+        ls -la release/ >> release/BUILD_INFO.txt
+        
+    - name: Get tag name
+      id: tag
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "name=dev-$(date +%Y%m%d-%H%M%S)" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.tag.outputs.name }}
+        name: POW Ledger ${{ steps.tag.outputs.name }}
+        body: |
+          ## POW Ledger Windows Release
+          
+          This release contains Windows binaries for both x64 and ARM64 architectures.
+          
+          ### Files:
+          - `pow-windows-x64.exe` - Windows 64-bit Intel/AMD binary
+          - `pow-windows-arm64.exe` - Windows ARM64 binary
+          
+          ### Usage:
+          ```cmd
+          # POW mining
+          pow-windows-x64.exe -p <128-char-hash> <128-char-hash> -t 4 -x 5
+          
+          # File checksum
+          pow-windows-x64.exe -c document.pdf
+          
+          # Directory checksum (recursive)
+          pow-windows-x64.exe -c C:\path\to\project -r
+          
+          # Trusted ledger
+          pow-windows-x64.exe -l ledger.csv document.pdf -t 4 -x 5
+          ```
+          
+          ### Requirements:
+          - Windows 10/11 (x64 or ARM64)
+          - No additional dependencies required
+          
+          Built with OpenSSL and pthread support.
+        files: |
+          release/pow-windows-x64.exe
+          release/pow-windows-arm64.exe
+          release/BUILD_INFO.txt
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
