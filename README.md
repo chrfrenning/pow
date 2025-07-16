@@ -218,85 +218,39 @@ The probability of finding such a hash is `1 / 2^difficulty`, making each additi
 ### Recommended Complexity Levels
 
 #### **Development and Testing**
-- **Complexity 1-4**: Near-instant (< 0.01 seconds)
-- **Use case**: Development, testing, basic validation
-
-#### **Light Production Use**
 - **Complexity 5-8**: 0.01-0.1 seconds on modern laptops
-- **Use case**: Personal files, small projects, educational purposes
+- **Use case**: Educational purposes, personal integrity validation
 
-#### **Standard Production Use**
-- **Complexity 9-12**: 0.1-5 seconds on modern laptops
-- **Use case**: Document authentication, professional work, small teams
+#### **Light Security**
+- **Complexity 13-16**: 5-300 seconds on modern laptops
+- **Use case**: Low-value files, or with substantial volume of files
 
 #### **High Security**
-- **Complexity 13-16**: 5-300 seconds on modern laptops
-- **Use case**: Critical documents, legal records, high-value files
+- **Complexity 17-20**: 5-80 minutes on modern laptops
+- **Use case**: High value files, acceptable for public scrutiny
 
 #### **Maximum Security**
-- **Complexity 17-20**: 5-80 minutes on modern laptops
-- **Use case**: Extremely sensitive documents, long-term archival
-
-### Performance Benchmarks
-
-**Modern Laptop (Intel i7/AMD Ryzen 7, 4-8 cores):**
-- **Complexity 8**: ~0.05 seconds average
-- **Complexity 12**: ~2 seconds average  
-- **Complexity 16**: ~120 seconds average
-- **Complexity 20**: ~30 minutes average
+- **Complexity 24-32**: 30-160 minutes on modern laptops
+- **Use case**: Few, high-value files
 
 **Multi-threading Impact:**
 - Performance scales roughly linearly with thread count
 - Use `-t 8` on 8-core systems for optimal performance
 - Thread count beyond CPU cores provides diminishing returns
 
-### Safety Compared to Bitcoin Mining
-
-**Energy Consumption:**
-- **This utility**: Minimal energy use, designed for occasional file verification
-- **Bitcoin mining**: Industrial-scale, continuous 24/7 operation consuming massive energy
-
-**Hardware Requirements:**
-- **This utility**: Runs on standard laptops/desktops, no specialized hardware
-- **Bitcoin mining**: Requires specialized ASIC hardware farms
-
-**Difficulty Comparison:**
-- **This utility**: Complexity 20 ≈ 1 million hash attempts (30 minutes on laptop)
-- **Bitcoin**: ~90 trillion trillion hash attempts (global network requirement)
-
-**Safety Considerations:**
-- **Laptop Safe**: Up to complexity 16 for regular use
-- **Extended Use**: Complexity 17-20 suitable for occasional high-security needs
-- **Cooling**: Ensure adequate ventilation during high-complexity operations
-- **Battery**: AC power recommended for complexity > 16
-
-### Complexity Selection Guidelines
-
-**For File Authentication:**
-- Personal files: Complexity 8-10
-- Business documents: Complexity 12-14
-- Legal records: Complexity 16-18
-
-**For Development:**
-- Testing: Complexity 1-4
-- Integration: Complexity 6-8
-- Production testing: Complexity 10-12
-
-**Note:** The maximum supported complexity is 512 bits, though practical limits are much lower due to computational constraints.
-
 ### Practical Examples
 
 **Quick Test (2 seconds):**
 ```bash
-./pow -l my_files.csv document.pdf -x 12 -t 4
+./pow -l my_files.csv document.pdf -x 13 -t 4
 ```
 
 **High Security (30 seconds):**
 ```bash
-./pow -l secure_archive.csv /important/docs -r -x 16 -t 8
+./pow -l secure_archive.csv politician.jpg -r -x 18 -t 8
 ```
 
 **Maximum Security (20 minutes):**
 ```bash
-./pow -l critical.csv legal_document.pdf -x 20 -t 8
+./pow -l critical.csv contract.pdf -x 28 -t 8
 ```
