@@ -35,6 +35,64 @@ void md5_file(const char *filepath, char *output) {
     output[32] = '\0';
 }
 
+void sha256_file(const char *filepath, char *output) {
+    FILE *file = fopen(filepath, "rb");
+    if (!file) {
+        output[0] = '\0';
+        return;
+    }
+    
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    
+    unsigned char buffer[8192];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        SHA256_Update(&ctx, buffer, bytes);
+    }
+    fclose(file);
+    
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_Final(hash, &ctx);
+    
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash[i]);
+    }
+    output[64] = '\0';
+}
+
+void sha256_double_file(const char *filepath, char *output) {
+    FILE *file = fopen(filepath, "rb");
+    if (!file) {
+        output[0] = '\0';
+        return;
+    }
+    
+    SHA256_CTX ctx;
+    SHA256_Init(&ctx);
+    
+    unsigned char buffer[8192];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        SHA256_Update(&ctx, buffer, bytes);
+    }
+    fclose(file);
+    
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_Final(hash, &ctx);
+    
+    /* Apply SHA256 again to the hash */
+    SHA256_CTX ctx2;
+    SHA256_Init(&ctx2);
+    SHA256_Update(&ctx2, hash, SHA256_DIGEST_LENGTH);
+    SHA256_Final(hash, &ctx2);
+    
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash[i]);
+    }
+    output[64] = '\0';
+}
+
 void generate_salt(char *salt_hex) {
     unsigned char salt_bytes[16];
     
@@ -68,6 +126,38 @@ void sha512_file(const char *filepath, char *output) {
     
     unsigned char hash[SHA512_DIGEST_LENGTH];
     SHA512_Final(hash, &ctx);
+    
+    for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash[i]);
+    }
+    output[HASH_HEX_LEN] = '\0';
+}
+
+void sha512_double_file(const char *filepath, char *output) {
+    FILE *file = fopen(filepath, "rb");
+    if (!file) {
+        output[0] = '\0';
+        return;
+    }
+    
+    SHA512_CTX ctx;
+    SHA512_Init(&ctx);
+    
+    unsigned char buffer[8192];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        SHA512_Update(&ctx, buffer, bytes);
+    }
+    fclose(file);
+    
+    unsigned char hash[SHA512_DIGEST_LENGTH];
+    SHA512_Final(hash, &ctx);
+    
+    /* Apply SHA512 again to the hash */
+    SHA512_CTX ctx2;
+    SHA512_Init(&ctx2);
+    SHA512_Update(&ctx2, hash, SHA512_DIGEST_LENGTH);
+    SHA512_Final(hash, &ctx2);
     
     for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
         sprintf(output + (i * 2), "%02x", hash[i]);
@@ -139,9 +229,13 @@ int process_file(const char *filepath, file_checksum_t *result) {
     }
     
     md5_file(filepath, result->md5);
+    sha256_file(filepath, result->sha256);
+    sha256_double_file(filepath, result->sha256_double);
     sha512_file(filepath, result->sha512);
+    sha512_double_file(filepath, result->sha512_double);
     
-    if (result->md5[0] == '\0' || result->sha512[0] == '\0') {
+    if (result->md5[0] == '\0' || result->sha256[0] == '\0' || result->sha256_double[0] == '\0' || 
+        result->sha512[0] == '\0' || result->sha512_double[0] == '\0') {
         result->error = 1;
         return -1;
     }
@@ -198,8 +292,14 @@ void print_json_single(const file_checksum_t *result) {
     printf("  \"filepath\": \"%s\",\n", result->filepath);
     printf("  \"size\": %ld,\n", result->size);
     printf("  \"md5\": \"%s\",\n", result->md5);
+    printf("  \"sha256\": \"%s\",\n", result->sha256);
+    printf("  \"sha256_double\": \"%s\",\n", result->sha256_double);
     printf("  \"sha512\": \"%s\",\n", result->sha512);
-    printf("  \"error\": %s\n", result->error ? "true" : "false");
+    printf("  \"sha512_double\": \"%s\"", result->sha512_double);
+    if (result->error) {
+        printf(",\n  \"error\": true");
+    }
+    printf("\n");
     printf("}\n");
 }
 
@@ -212,8 +312,14 @@ void print_json_multiple(const file_checksum_t results[], int count) {
         printf("      \"filepath\": \"%s\",\n", results[i].filepath);
         printf("      \"size\": %ld,\n", results[i].size);
         printf("      \"md5\": \"%s\",\n", results[i].md5);
+        printf("      \"sha256\": \"%s\",\n", results[i].sha256);
+        printf("      \"sha256_double\": \"%s\",\n", results[i].sha256_double);
         printf("      \"sha512\": \"%s\",\n", results[i].sha512);
-        printf("      \"error\": %s\n", results[i].error ? "true" : "false");
+        printf("      \"sha512_double\": \"%s\"", results[i].sha512_double);
+        if (results[i].error) {
+            printf(",\n      \"error\": true");
+        }
+        printf("\n");
         printf("    }%s\n", (i < count - 1) ? "," : "");
     }
     

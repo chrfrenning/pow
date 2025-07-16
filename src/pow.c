@@ -98,9 +98,13 @@ int calculate_ledger_pow(ledger_entry_t *entry, int difficulty, int num_threads,
     memset(pow_result.result_hash, 0, sizeof(pow_result.result_hash));
     
     /* Prepare current data */
-    char current_data[256];
-    snprintf(current_data, sizeof(current_data), "%s_%ld_%s",
-             entry->filename, entry->size, entry->checksum);
+    char current_data[MAX_PATH_LEN + 64 + HASH_HEX_LEN]; // filename + size + checksum + separators
+    int ret = snprintf(current_data, sizeof(current_data), "%s_%ld_%s",
+                       entry->filename, entry->size, entry->checksum);
+    if (ret >= (int)sizeof(current_data) || ret < 0) {
+        fprintf(stderr, "Error: Data string too long for buffer\n");
+        return -1;
+    }
     
     /* Create thread arguments */
     thread_args_t args[MAX_THREADS];
@@ -110,9 +114,15 @@ int calculate_ledger_pow(ledger_entry_t *entry, int difficulty, int num_threads,
         num_threads = MAX_THREADS;
     }
     
+    /* Hash the current data first */
+    char current_hash[129];
+    sha512_hex(current_data, current_hash);
+    
     for (int t = 0; t < num_threads; t++) {
-        strncpy(args[t].previous_entry, prev_hash, HASH_HEX_LEN);
-        strncpy(args[t].current_entry, current_data, HASH_HEX_LEN);
+        memcpy(args[t].previous_entry, prev_hash, HASH_HEX_LEN);
+        args[t].previous_entry[HASH_HEX_LEN] = '\0';
+        memcpy(args[t].current_entry, current_hash, HASH_HEX_LEN);
+        args[t].current_entry[HASH_HEX_LEN] = '\0';
         args[t].difficulty = difficulty;
         args[t].thread_id = t;
         args[t].num_threads = num_threads;
@@ -149,8 +159,10 @@ int run_pow_mining(const char *prev_hash, const char *next_hash, int difficulty,
     double start_time = current_time();
     
     for (int t = 0; t < num_threads; t++) {
-        strncpy(args[t].previous_entry, prev_hash, HASH_HEX_LEN);
-        strncpy(args[t].current_entry, next_hash, HASH_HEX_LEN);
+        memcpy(args[t].previous_entry, prev_hash, HASH_HEX_LEN);
+        args[t].previous_entry[HASH_HEX_LEN] = '\0';
+        memcpy(args[t].current_entry, next_hash, HASH_HEX_LEN);
+        args[t].current_entry[HASH_HEX_LEN] = '\0';
         args[t].difficulty = difficulty;
         args[t].thread_id = t;
         args[t].num_threads = num_threads;

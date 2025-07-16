@@ -245,9 +245,14 @@ int run_ledger_verification(const char *filename, int file_verify, int ignore_er
         }
         
         /* Verify POW hash */
-        char current_data[256];
-        snprintf(current_data, sizeof(current_data), "%s_%ld_%s",
-                 entries[i].filename, entries[i].size, entries[i].checksum);
+        char current_data[MAX_PATH_LEN + 64 + HASH_HEX_LEN]; // filename + size + checksum + separators
+        int ret = snprintf(current_data, sizeof(current_data), "%s_%ld_%s",
+                           entries[i].filename, entries[i].size, entries[i].checksum);
+        if (ret >= (int)sizeof(current_data) || ret < 0) {
+            fprintf(stderr, "Error: Data string too long for buffer in entry %d\n", i);
+            free(entries);
+            return -1;
+        }
         
         char prev_hash[129];
         if (i == 0) {

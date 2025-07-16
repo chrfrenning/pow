@@ -6,7 +6,10 @@
 /* Cryptographic hash functions */
 void sha512_hex(const char *input, char *output);
 void md5_file(const char *filepath, char *output);
+void sha256_file(const char *filepath, char *output);
+void sha256_double_file(const char *filepath, char *output);
 void sha512_file(const char *filepath, char *output);
+void sha512_double_file(const char *filepath, char *output);
 void sha512_file_with_salt(const char *filepath, const char *salt, char *output);
 void generate_salt(char *salt_hex);
 

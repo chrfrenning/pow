@@ -50,7 +50,10 @@ typedef struct {
 typedef struct {
     char filepath[MAX_PATH_LEN];
     char md5[33];
+    char sha256[65];
+    char sha256_double[65];
     char sha512[129];
+    char sha512_double[129];
     long size;
     int error;
 } file_checksum_t;
