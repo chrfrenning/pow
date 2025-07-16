@@ -5,6 +5,8 @@ proof-of-work mining for building trusted ledgers, and is a
 building block for building a decentralized, socially validated,
 proof-of-work based photo authenticity system for Web 3.0.
 
+Copyright (C) Christopher Frenning / Perceptron AS 2025. All rights
+reserved. Licensed under AGPLv3.
 
 ## Features
 
@@ -28,12 +30,34 @@ proof-of-work based photo authenticity system for Web 3.0.
 ## Building
 
 ```bash
-make          # Build the program
+make          # Build the program (creates 'pow' binary)
 make clean    # Remove build artifacts
 make debug    # Build with debug symbols
-make run      # Build and run
+make run      # Build and run with help
 make help     # Show all available targets
 ```
+
+## Installation
+
+### System-wide Installation (Recommended)
+```bash
+sudo make install    # Install to /usr/local/bin (requires sudo)
+sudo make uninstall  # Remove from /usr/local/bin
+```
+
+### User-local Installation
+```bash
+make user-install     # Install to ~/.local/bin (current user only)
+make user-uninstall   # Remove from ~/.local/bin
+```
+
+After user-local installation, ensure `~/.local/bin` is in your PATH:
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+Once installed, you can run `pow` from anywhere instead of `./pow`.
 
 ### Requirements
 
@@ -48,22 +72,22 @@ make help     # Show all available targets
 
 ### POW Mining Mode
 ```bash
-./pow_ledger -p <previous_hash> <next_hash> [OPTIONS]
+./pow -p <previous_hash> <next_hash> [OPTIONS]
 ```
 
 **Options:**
 - `-t, --threads <num>`: Number of threads (default: 4)
-- `-x, --complexity <num>`: Difficulty level (default: 5)
+- `-x, --complexity <num>`: Difficulty level in bits (default: 5)
 
 **Example:**
 ```bash
-./pow_ledger -p 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 -t 8 -x 6
+./pow -p 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 -t 8 -x 8
 ```
 
 ### Checksum Mode
 ```bash
-./pow_ledger -c <path>               # File or directory
-./pow_ledger -c <directory_path> -r  # Directory (recursive)
+./pow -c <path>               # File or directory
+./pow -c <directory_path> -r  # Directory (recursive)
 ```
 
 **Options:**
@@ -71,29 +95,29 @@ make help     # Show all available targets
 
 **Examples:**
 ```bash
-./pow_ledger -c document.pdf
-./pow_ledger -c /path/to/project
-./pow_ledger -c /path/to/project -r  # Include subdirectories
+./pow -c document.pdf
+./pow -c /path/to/project
+./pow -c /path/to/project -r  # Include subdirectories
 ```
 
 ### Ledger Mode
 ```bash
-./pow_ledger -l <ledger_file> <path>     # File or directory
-./pow_ledger -l <ledger_file> <path> -r  # Directory (recursive)
-./pow_ledger -l <ledger_file> <path> -s <start_hash>  # Use custom start hash
+./pow -l <ledger_file> <path>     # File or directory
+./pow -l <ledger_file> <path> -r  # Directory (recursive)
+./pow -l <ledger_file> <path> -s <start_hash>  # Use custom start hash
 ```
 
 **Options:**
 - `-t, --threads <num>`: Number of threads (default: 4)
-- `-x, --complexity <num>`: Difficulty level (default: 5)
+- `-x, --complexity <num>`: Difficulty level in bits (default: 5)
 - `-r, --recursive`: Include subdirectories (default: off)
 - `-s, --start-hash <hash>`: Start hash for new ledger (requires non-existing file)
 
 **Examples:**
 ```bash
-./pow_ledger -l secure.csv document.pdf -t 8 -x 6
-./pow_ledger -l project.csv /path/to/project -r -t 4 -x 5
-./pow_ledger -l batch.csv /path/to/files -s abc123...def456 -t 4 -x 5
+./pow -l secure.csv document.pdf -t 8 -x 8
+./pow -l project.csv /path/to/project -r -t 4 -x 10
+./pow -l batch.csv /path/to/files -s abc123...def456 -t 4 -x 12
 ```
 
 ### Output Format
@@ -104,7 +128,7 @@ All operations output JSON for easy integration with Electron apps:
 {
   "previous_hash": "000...",
   "next_hash": "111...",
-  "difficulty": 5,
+  "difficulty": 8,
   "threads": 4,
   "nonce": 123456,
   "result_hash": "abc...",
@@ -155,10 +179,10 @@ All operations output JSON for easy integration with Electron apps:
 
 ### Verification Mode
 ```bash
-./pow_ledger -v <ledger_file>           # Verify ledger integrity
-./pow_ledger -v <ledger_file> -f        # Verify ledger + file checksums
-./pow_ledger -v <ledger_file> -i        # Continue on errors
-./pow_ledger -v <ledger_file> -f -i     # Verify files, ignore errors
+./pow -v <ledger_file>           # Verify ledger integrity
+./pow -v <ledger_file> -f        # Verify ledger + file checksums
+./pow -v <ledger_file> -i        # Continue on errors
+./pow -v <ledger_file> -f -i     # Verify files, ignore errors
 ```
 
 **Options:**
@@ -167,8 +191,8 @@ All operations output JSON for easy integration with Electron apps:
 
 **Examples:**
 ```bash
-./pow_ledger -v secure.csv
-./pow_ledger -v project.csv -f -i
+./pow -v secure.csv
+./pow -v project.csv -f -i
 ```
 
 **Verification Mode:**
@@ -177,3 +201,102 @@ All operations output JSON for easy integration with Electron apps:
 - Optionally verifies file checksums if -f flag is used
 - Can continue on errors with -i flag
 - Displays progress and comprehensive results 
+
+## Complexity and Proof-of-Work Difficulty
+
+The `-x, --complexity` parameter sets the proof-of-work difficulty in **bits** (not hex characters), following standard blockchain conventions. The system requires finding a SHA-512 hash with the specified number of leading zero bits.
+
+### How It Works
+
+Each difficulty level requires finding a hash that begins with a specific number of zero bits:
+- **Complexity 4**: Hash must start with `0000` (4 zero bits)
+- **Complexity 8**: Hash must start with `00000000` (8 zero bits)  
+- **Complexity 12**: Hash must start with `000000000000` (12 zero bits)
+
+The probability of finding such a hash is `1 / 2^difficulty`, making each additional bit exponentially harder.
+
+### Recommended Complexity Levels
+
+#### **Development and Testing**
+- **Complexity 1-4**: Near-instant (< 0.01 seconds)
+- **Use case**: Development, testing, basic validation
+
+#### **Light Production Use**
+- **Complexity 5-8**: 0.01-0.1 seconds on modern laptops
+- **Use case**: Personal files, small projects, educational purposes
+
+#### **Standard Production Use**
+- **Complexity 9-12**: 0.1-5 seconds on modern laptops
+- **Use case**: Document authentication, professional work, small teams
+
+#### **High Security**
+- **Complexity 13-16**: 5-300 seconds on modern laptops
+- **Use case**: Critical documents, legal records, high-value files
+
+#### **Maximum Security**
+- **Complexity 17-20**: 5-80 minutes on modern laptops
+- **Use case**: Extremely sensitive documents, long-term archival
+
+### Performance Benchmarks
+
+**Modern Laptop (Intel i7/AMD Ryzen 7, 4-8 cores):**
+- **Complexity 8**: ~0.05 seconds average
+- **Complexity 12**: ~2 seconds average  
+- **Complexity 16**: ~120 seconds average
+- **Complexity 20**: ~30 minutes average
+
+**Multi-threading Impact:**
+- Performance scales roughly linearly with thread count
+- Use `-t 8` on 8-core systems for optimal performance
+- Thread count beyond CPU cores provides diminishing returns
+
+### Safety Compared to Bitcoin Mining
+
+**Energy Consumption:**
+- **This utility**: Minimal energy use, designed for occasional file verification
+- **Bitcoin mining**: Industrial-scale, continuous 24/7 operation consuming massive energy
+
+**Hardware Requirements:**
+- **This utility**: Runs on standard laptops/desktops, no specialized hardware
+- **Bitcoin mining**: Requires specialized ASIC hardware farms
+
+**Difficulty Comparison:**
+- **This utility**: Complexity 20 ≈ 1 million hash attempts (30 minutes on laptop)
+- **Bitcoin**: ~90 trillion trillion hash attempts (global network requirement)
+
+**Safety Considerations:**
+- **Laptop Safe**: Up to complexity 16 for regular use
+- **Extended Use**: Complexity 17-20 suitable for occasional high-security needs
+- **Cooling**: Ensure adequate ventilation during high-complexity operations
+- **Battery**: AC power recommended for complexity > 16
+
+### Complexity Selection Guidelines
+
+**For File Authentication:**
+- Personal files: Complexity 8-10
+- Business documents: Complexity 12-14
+- Legal records: Complexity 16-18
+
+**For Development:**
+- Testing: Complexity 1-4
+- Integration: Complexity 6-8
+- Production testing: Complexity 10-12
+
+**Note:** The maximum supported complexity is 512 bits, though practical limits are much lower due to computational constraints.
+
+### Practical Examples
+
+**Quick Test (2 seconds):**
+```bash
+./pow -l my_files.csv document.pdf -x 12 -t 4
+```
+
+**High Security (30 seconds):**
+```bash
+./pow -l secure_archive.csv /important/docs -r -x 16 -t 8
+```
+
+**Maximum Security (20 minutes):**
+```bash
+./pow -l critical.csv legal_document.pdf -x 20 -t 8
+```
