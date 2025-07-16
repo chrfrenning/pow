@@ -11,7 +11,20 @@ void sha256_double_file(const char *filepath, char *output);
 void sha512_file(const char *filepath, char *output);
 void sha512_double_file(const char *filepath, char *output);
 void sha512_file_with_salt(const char *filepath, const char *salt, char *output);
+void sha512_double_file_with_salt(const char *filepath, const char *salt, char *output);
 void generate_salt(char *salt_hex);
+void generate_salt_hex(char *salt_hex);
+void md5_hex(const char *input, char *output);
+void md5_double_hex(const char *input, char *output);
+void sha256_hex(const char *input, char *output);
+void sha256_double_hex(const char *input, char *output);
+void sha512_double_hex(const char *input, char *output);
+void md5_hex_with_salt(const char *input, const char *salt, char *output);
+void md5_double_hex_with_salt(const char *input, const char *salt, char *output);
+void sha256_hex_with_salt(const char *input, const char *salt, char *output);
+void sha256_double_hex_with_salt(const char *input, const char *salt, char *output);
+void sha512_hex_with_salt(const char *input, const char *salt, char *output);
+void sha512_double_hex_with_salt(const char *input, const char *salt, char *output);
 
 /* File operations */
 long get_file_size(const char *filepath);

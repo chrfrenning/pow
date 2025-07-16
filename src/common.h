@@ -32,6 +32,16 @@
 #define DEFAULT_THREADS 4
 #define DEFAULT_DIFFICULTY 5
 
+/* Enums */
+typedef enum {
+    ALGO_MD5,
+    ALGO_MD5D,
+    ALGO_SHA256,
+    ALGO_SHA256D,
+    ALGO_SHA512,
+    ALGO_SHA512D
+} hash_algorithm_t;
+
 /* Common data structures */
 typedef struct {
     char previous_entry[HASH_HEX_LEN + 1];
@@ -39,6 +49,8 @@ typedef struct {
     int difficulty;
     int thread_id;
     int num_threads;
+    hash_algorithm_t algorithm;
+    char salt[33];
 } thread_args_t;
 
 typedef struct {

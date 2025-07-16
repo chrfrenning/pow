@@ -16,6 +16,9 @@ void print_usage(const char *program_name) {
     printf("\nPOW Mode Options:\n");
     printf("  -t, --threads <num>                Number of threads (default: %d)\n", DEFAULT_THREADS);
     printf("  -x, --complexity <num>             Difficulty level in bits (default: %d)\n", DEFAULT_DIFFICULTY);
+    printf("  -a, --algorithm <algo>             Hash algorithm: md5|md5d|sha256|sha256d|sha512|sha512d (default: sha512)\n");
+    printf("      --salt                         Generate random salt\n");
+    printf("      --use-salt <salt>              Use specific salt (32 hex chars)\n");
     printf("\nChecksum Mode Options:\n");
     printf("  -r, --recursive                    Include subdirectories (default: off)\n");
     printf("\nLedger Mode Options:\n");
@@ -30,6 +33,9 @@ void print_usage(const char *program_name) {
     printf("  -h, --help                         Show this help message\n");
     printf("\nExamples:\n");
     printf("  %s -p prev_hash next_hash -t 8 -x 6\n", program_name);
+    printf("  %s -p prev_hash next_hash -a sha256 -t 4 -x 5\n", program_name);
+    printf("  %s -p prev_hash next_hash -a md5d --salt -t 2 -x 4\n", program_name);
+    printf("  %s -p prev_hash next_hash -a sha512d --use-salt abcdef1234567890abcdef1234567890\n", program_name);
     printf("  %s -c myfile.txt\n", program_name);
     printf("  %s -c /path/to/directory -r\n", program_name);
     printf("  %s -l ledger.csv /path/to/files -t 4 -x 5\n", program_name);

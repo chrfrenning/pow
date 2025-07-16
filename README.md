@@ -11,7 +11,8 @@ reserved. Licensed under AGPLv3.
 ## Features
 
 ### Proof-of-Work Mining
-- SHA-512 hash chain generation
+- Multiple hash algorithms: MD5, MD5-double, SHA-256, SHA-256-double, SHA-512, SHA-512-double
+- Salt support for enhanced security (random generation or custom salt)
 - Multi-threaded proof-of-work mining with configurable difficulty
 - Configurable thread count for optimal performance
 - Command-line interface
@@ -78,10 +79,31 @@ Once installed, you can run `pow` from anywhere instead of `./pow`.
 **Options:**
 - `-t, --threads <num>`: Number of threads (default: 4)
 - `-x, --complexity <num>`: Difficulty level in bits (default: 5)
+- `-a, --algorithm <algo>`: Hash algorithm: `md5`, `md5d`, `sha256`, `sha256d`, `sha512`, `sha512d` (default: sha512)
+- `--salt`: Generate random cryptographically secure salt
+- `--use-salt <salt>`: Use specific 32-character hexadecimal salt
 
-**Example:**
+**Algorithm Options:**
+- `md5`: Standard MD5 hashing
+- `md5d`: Double MD5 hashing (MD5 applied twice)
+- `sha256`: Standard SHA-256 hashing
+- `sha256d`: Double SHA-256 hashing (SHA-256 applied twice)
+- `sha512`: Standard SHA-512 hashing (default)
+- `sha512d`: Double SHA-512 hashing (SHA-512 applied twice)
+
+**Examples:**
 ```bash
+# Basic POW with default SHA-512
 ./pow -p 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 -t 8 -x 8
+
+# Using SHA-256 algorithm
+./pow -p 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 -a sha256 -t 4 -x 6
+
+# Using MD5 with random salt
+./pow -p 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 -a md5 --salt -t 2 -x 4
+
+# Using SHA-512 double with specific salt
+./pow -p 00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000 11111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111 -a sha512d --use-salt abcdef1234567890abcdef1234567890 -t 4 -x 5
 ```
 
 ### Checksum Mode
@@ -128,6 +150,8 @@ All operations output JSON for easy integration with Electron apps:
 {
   "previous_hash": "000...",
   "next_hash": "111...",
+  "algorithm": "sha256",
+  "salt": "1d0c4e71c85efcdc615b30c02234e748",
   "difficulty": 8,
   "threads": 4,
   "nonce": 123456,
@@ -135,6 +159,8 @@ All operations output JSON for easy integration with Electron apps:
   "time_seconds": 1.234567
 }
 ```
+
+**Note:** The `algorithm` field is always present. The `salt` field is only included when salt is used (either `--salt` or `--use-salt` options).
 
 **Single File Checksum:**
 ```json
@@ -165,7 +191,7 @@ All operations output JSON for easy integration with Electron apps:
 
 **Ledger Mode:**
 - Creates/updates a CSV ledger file with ZenTransfer Ledger version 1.0 format
-- Each file entry includes: filename, size, SHA-512 checksum, nonce, POW hash, complexity
+- Each file entry includes: filename, size, SHA-512d checksum, nonce, POW hash, complexity
 - Displays progress during POW calculation
 - Maintains cryptographic chain linking all entries
 - Supports both individual files and directory processing
@@ -202,9 +228,53 @@ All operations output JSON for easy integration with Electron apps:
 - Can continue on errors with -i flag
 - Displays progress and comprehensive results 
 
+## Salt Security Features
+
+The POW mode supports salt for enhanced security, making it more difficult to precompute or attack the proof-of-work process.
+
+### Salt Options
+
+**Random Salt Generation:**
+```bash
+./pow -p prev_hash next_hash --salt -a sha256 -t 4 -x 6
+```
+- Generates a cryptographically secure random 32-character hexadecimal salt
+- Salt is included in the JSON output for verification purposes
+- Each run produces different results even with identical inputs
+
+**Custom Salt:**
+```bash
+./pow -p prev_hash next_hash --use-salt abcdef1234567890abcdef1234567890 -a sha256 -t 4 -x 6
+```
+- Use a specific 32-character hexadecimal salt
+- Allows reproducible results for verification
+- Salt must be exactly 32 characters long
+
+### How Salt Works
+
+1. The salt is prepended to the input data before hashing
+2. Makes rainbow table attacks impractical
+3. Salt is included in JSON output for verification purposes
+
+## Algorithm Selection Guide
+
+### Supported Algorithms
+
+The POW mode supports 6 different hash algorithms, each with different security characteristics and performance profiles:
+
+#### Standard Algorithms
+- **MD5** (`md5`): Fastest, lowest security (128-bit output)
+- **SHA-256** (`sha256`): Good balance of speed and security (256-bit output)
+- **SHA-512** (`sha512`): Highest security, slower (512-bit output) - **Default**
+
+#### Double-Hash Algorithms
+- **MD5 Double** (`md5d`): MD5 applied twice, slightly more secure than MD5
+- **SHA-256 Double** (`sha256d`): SHA-256 applied twice, Bitcoin-style double hashing
+- **SHA-512 Double** (`sha512d`): SHA-512 applied twice, maximum security
+
 ## Complexity and Proof-of-Work Difficulty
 
-The `-x, --complexity` parameter sets the proof-of-work difficulty in **bits** (not hex characters), following standard blockchain conventions. The system requires finding a SHA-512 hash with the specified number of leading zero bits.
+The `-x, --complexity` parameter sets the proof-of-work difficulty in **bits**, following standard blockchain conventions. The system requires finding a hash with the specified number of leading zero bits using the selected algorithm.
 
 ### How It Works
 
@@ -253,4 +323,30 @@ The probability of finding such a hash is `1 / 2^difficulty`, making each additi
 **Maximum Security (20 minutes):**
 ```bash
 ./pow -l critical.csv contract.pdf -x 28 -t 8
+```
+
+### Advanced POW Examples
+
+**Combining Algorithm and Salt:**
+```bash
+# SHA-256 double with random salt for enhanced security
+./pow -p prev_hash next_hash -a sha256d --salt -x 15 -t 4
+
+# MD5 with custom salt for fast reproducible testing
+./pow -p prev_hash next_hash -a md5 --use-salt 0123456789abcdef0123456789abcdef -x 8 -t 2
+
+# Maximum security: SHA-512 double with random salt
+./pow -p prev_hash next_hash -a sha512d --salt -x 20 -t 8
+```
+
+**Algorithm Performance Comparison:**
+```bash
+# Fast development testing
+./pow -p prev_hash next_hash -a md5 -x 16 -t 4
+
+# Production security
+./pow -p prev_hash next_hash -a sha256 -x 16 -t 4
+
+# Maximum security
+./pow -p prev_hash next_hash -a sha512d -x 16 -t 4
 ```

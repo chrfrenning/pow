@@ -107,6 +107,142 @@ void generate_salt(char *salt_hex) {
     salt_hex[32] = '\0';
 }
 
+void generate_salt_hex(char *salt_hex) {
+    generate_salt(salt_hex);
+}
+
+void md5_hex(const char *input, char *output) {
+    unsigned char hash[MD5_DIGEST_LENGTH];
+    MD5((const unsigned char*)input, strlen(input), hash);
+    for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash[i]);
+    }
+    output[32] = '\0';
+}
+
+void md5_double_hex(const char *input, char *output) {
+    unsigned char hash[MD5_DIGEST_LENGTH];
+    MD5((const unsigned char*)input, strlen(input), hash);
+    
+    /* Apply MD5 again to the hash */
+    unsigned char hash2[MD5_DIGEST_LENGTH];
+    MD5(hash, MD5_DIGEST_LENGTH, hash2);
+    
+    for (int i = 0; i < MD5_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash2[i]);
+    }
+    output[32] = '\0';
+}
+
+void sha256_hex(const char *input, char *output) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256((const unsigned char*)input, strlen(input), hash);
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash[i]);
+    }
+    output[64] = '\0';
+}
+
+void sha256_double_hex(const char *input, char *output) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256((const unsigned char*)input, strlen(input), hash);
+    
+    /* Apply SHA256 again to the hash */
+    unsigned char hash2[SHA256_DIGEST_LENGTH];
+    SHA256(hash, SHA256_DIGEST_LENGTH, hash2);
+    
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash2[i]);
+    }
+    output[64] = '\0';
+}
+
+void sha512_double_hex(const char *input, char *output) {
+    unsigned char hash[SHA512_DIGEST_LENGTH];
+    SHA512((const unsigned char*)input, strlen(input), hash);
+    
+    /* Apply SHA512 again to the hash */
+    unsigned char hash2[SHA512_DIGEST_LENGTH];
+    SHA512(hash, SHA512_DIGEST_LENGTH, hash2);
+    
+    for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash2[i]);
+    }
+    output[HASH_HEX_LEN] = '\0';
+}
+
+void md5_hex_with_salt(const char *input, const char *salt, char *output) {
+    size_t salt_len = strlen(salt);
+    size_t input_len = strlen(input);
+    char *salted_input = malloc(salt_len + input_len + 1);
+    
+    strcpy(salted_input, salt);
+    strcat(salted_input, input);
+    
+    md5_hex(salted_input, output);
+    free(salted_input);
+}
+
+void md5_double_hex_with_salt(const char *input, const char *salt, char *output) {
+    size_t salt_len = strlen(salt);
+    size_t input_len = strlen(input);
+    char *salted_input = malloc(salt_len + input_len + 1);
+    
+    strcpy(salted_input, salt);
+    strcat(salted_input, input);
+    
+    md5_double_hex(salted_input, output);
+    free(salted_input);
+}
+
+void sha256_hex_with_salt(const char *input, const char *salt, char *output) {
+    size_t salt_len = strlen(salt);
+    size_t input_len = strlen(input);
+    char *salted_input = malloc(salt_len + input_len + 1);
+    
+    strcpy(salted_input, salt);
+    strcat(salted_input, input);
+    
+    sha256_hex(salted_input, output);
+    free(salted_input);
+}
+
+void sha256_double_hex_with_salt(const char *input, const char *salt, char *output) {
+    size_t salt_len = strlen(salt);
+    size_t input_len = strlen(input);
+    char *salted_input = malloc(salt_len + input_len + 1);
+    
+    strcpy(salted_input, salt);
+    strcat(salted_input, input);
+    
+    sha256_double_hex(salted_input, output);
+    free(salted_input);
+}
+
+void sha512_hex_with_salt(const char *input, const char *salt, char *output) {
+    size_t salt_len = strlen(salt);
+    size_t input_len = strlen(input);
+    char *salted_input = malloc(salt_len + input_len + 1);
+    
+    strcpy(salted_input, salt);
+    strcat(salted_input, input);
+    
+    sha512_hex(salted_input, output);
+    free(salted_input);
+}
+
+void sha512_double_hex_with_salt(const char *input, const char *salt, char *output) {
+    size_t salt_len = strlen(salt);
+    size_t input_len = strlen(input);
+    char *salted_input = malloc(salt_len + input_len + 1);
+    
+    strcpy(salted_input, salt);
+    strcat(salted_input, input);
+    
+    sha512_double_hex(salted_input, output);
+    free(salted_input);
+}
+
 void sha512_file(const char *filepath, char *output) {
     FILE *file = fopen(filepath, "rb");
     if (!file) {
@@ -187,6 +323,41 @@ void sha512_file_with_salt(const char *filepath, const char *salt, char *output)
     
     unsigned char hash[SHA512_DIGEST_LENGTH];
     SHA512_Final(hash, &ctx);
+    
+    for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash[i]);
+    }
+    output[HASH_HEX_LEN] = '\0';
+}
+
+void sha512_double_file_with_salt(const char *filepath, const char *salt, char *output) {
+    FILE *file = fopen(filepath, "rb");
+    if (!file) {
+        output[0] = '\0';
+        return;
+    }
+    
+    SHA512_CTX ctx;
+    SHA512_Init(&ctx);
+    
+    /* Update with salt first */
+    SHA512_Update(&ctx, salt, strlen(salt));
+    
+    unsigned char buffer[8192];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        SHA512_Update(&ctx, buffer, bytes);
+    }
+    fclose(file);
+    
+    unsigned char hash[SHA512_DIGEST_LENGTH];
+    SHA512_Final(hash, &ctx);
+    
+    /* Apply SHA512 again to the hash */
+    SHA512_CTX ctx2;
+    SHA512_Init(&ctx2);
+    SHA512_Update(&ctx2, hash, SHA512_DIGEST_LENGTH);
+    SHA512_Final(hash, &ctx2);
     
     for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
         sprintf(output + (i * 2), "%02x", hash[i]);
@@ -282,7 +453,7 @@ int scan_directory(const char *dirpath, int recursive, file_checksum_t results[]
 
 int verify_file_checksum_with_salt(const char *filepath, const char *expected_checksum, const char *salt) {
     char computed_checksum[129];
-    sha512_file_with_salt(filepath, salt, computed_checksum);
+    sha512_double_file_with_salt(filepath, salt, computed_checksum);
     
     return strcmp(computed_checksum, expected_checksum) == 0;
 }

@@ -11,7 +11,59 @@ void *pow_worker(void *arg) {
         snprintf(data, sizeof(data), "%s%s%lu", args->previous_entry, args->current_entry, nonce);
         
         char hash_hex[129];
-        sha512_hex(data, hash_hex);
+        
+        /* Select hash algorithm */
+        if (args->salt[0] != '\0') {
+            /* Hash with salt */
+            switch (args->algorithm) {
+                case ALGO_MD5:
+                    md5_hex_with_salt(data, args->salt, hash_hex);
+                    break;
+                case ALGO_MD5D:
+                    md5_double_hex_with_salt(data, args->salt, hash_hex);
+                    break;
+                case ALGO_SHA256:
+                    sha256_hex_with_salt(data, args->salt, hash_hex);
+                    break;
+                case ALGO_SHA256D:
+                    sha256_double_hex_with_salt(data, args->salt, hash_hex);
+                    break;
+                case ALGO_SHA512:
+                    sha512_hex_with_salt(data, args->salt, hash_hex);
+                    break;
+                case ALGO_SHA512D:
+                    sha512_double_hex_with_salt(data, args->salt, hash_hex);
+                    break;
+                default:
+                    sha512_hex(data, hash_hex);
+                    break;
+            }
+        } else {
+            /* Hash without salt */
+            switch (args->algorithm) {
+                case ALGO_MD5:
+                    md5_hex(data, hash_hex);
+                    break;
+                case ALGO_MD5D:
+                    md5_double_hex(data, hash_hex);
+                    break;
+                case ALGO_SHA256:
+                    sha256_hex(data, hash_hex);
+                    break;
+                case ALGO_SHA256D:
+                    sha256_double_hex(data, hash_hex);
+                    break;
+                case ALGO_SHA512:
+                    sha512_hex(data, hash_hex);
+                    break;
+                case ALGO_SHA512D:
+                    sha512_double_hex(data, hash_hex);
+                    break;
+                default:
+                    sha512_hex(data, hash_hex);
+                    break;
+            }
+        }
         
         if (count_leading_zero_bits(hash_hex) >= args->difficulty) {
             int expected = 0;
@@ -143,6 +195,10 @@ int calculate_ledger_pow(ledger_entry_t *entry, int difficulty, int num_threads,
 }
 
 int run_pow_mining(const char *prev_hash, const char *next_hash, int difficulty, int num_threads) {
+    return run_pow_mining_with_options(prev_hash, next_hash, difficulty, num_threads, ALGO_SHA512, NULL);
+}
+
+int run_pow_mining_with_options(const char *prev_hash, const char *next_hash, int difficulty, int num_threads, hash_algorithm_t algorithm, const char *salt) {
     /* Initialize POW result */
     atomic_store(&pow_result.found, 0);
     pow_result.result_nonce = 0;
@@ -166,6 +222,12 @@ int run_pow_mining(const char *prev_hash, const char *next_hash, int difficulty,
         args[t].difficulty = difficulty;
         args[t].thread_id = t;
         args[t].num_threads = num_threads;
+        args[t].algorithm = algorithm;
+        if (salt) {
+            strcpy(args[t].salt, salt);
+        } else {
+            args[t].salt[0] = '\0';
+        }
         pthread_create(&threads[t], NULL, pow_worker, &args[t]);
     }
     
@@ -175,10 +237,26 @@ int run_pow_mining(const char *prev_hash, const char *next_hash, int difficulty,
     
     double elapsed_time = current_time() - start_time;
     
+    /* Get algorithm name for output */
+    const char *algo_name;
+    switch (algorithm) {
+        case ALGO_MD5: algo_name = "md5"; break;
+        case ALGO_MD5D: algo_name = "md5d"; break;
+        case ALGO_SHA256: algo_name = "sha256"; break;
+        case ALGO_SHA256D: algo_name = "sha256d"; break;
+        case ALGO_SHA512: algo_name = "sha512"; break;
+        case ALGO_SHA512D: algo_name = "sha512d"; break;
+        default: algo_name = "unknown"; break;
+    }
+    
     /* Output JSON result */
     printf("{\n");
     printf("  \"previous_hash\": \"%s\",\n", prev_hash);
     printf("  \"next_hash\": \"%s\",\n", next_hash);
+    printf("  \"algorithm\": \"%s\",\n", algo_name);
+    if (salt) {
+        printf("  \"salt\": \"%s\",\n", salt);
+    }
     printf("  \"difficulty\": %d,\n", difficulty);
     printf("  \"threads\": %d,\n", num_threads);
     printf("  \"nonce\": %lu,\n", pow_result.result_nonce);

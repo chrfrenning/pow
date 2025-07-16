@@ -21,6 +21,10 @@ int main(int argc, char *argv[]) {
     int recursive = 0;
     int file_verify = 0;
     int ignore_errors = 0;
+    hash_algorithm_t algorithm = ALGO_SHA512;
+    char *salt = NULL;
+    char *use_salt = NULL;
+    int generate_salt_flag = 0;
     
     static struct option long_options[] = {
         {"pow", required_argument, 0, 'p'},
@@ -33,11 +37,14 @@ int main(int argc, char *argv[]) {
         {"file-verify", no_argument, 0, 'f'},
         {"ignore-errors", no_argument, 0, 'i'},
         {"start-hash", required_argument, 0, 's'},
+        {"algorithm", required_argument, 0, 'a'},
+        {"salt", no_argument, 0, 1000},
+        {"use-salt", required_argument, 0, 1001},
         {"help", no_argument, 0, 'h'},
         {0, 0, 0, 0}
     };
 
-    while ((opt = getopt_long(argc, argv, "p:c:l:v:t:x:rfis:h", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "p:c:l:v:t:x:rfis:a:h", long_options, NULL)) != -1) {
         switch (opt) {
             case 'p':
                 if (mode != MODE_NONE) {
@@ -101,6 +108,34 @@ int main(int argc, char *argv[]) {
                     return 1;
                 }
                 break;
+            case 'a':
+                if (strcmp(optarg, "md5") == 0) {
+                    algorithm = ALGO_MD5;
+                } else if (strcmp(optarg, "md5d") == 0) {
+                    algorithm = ALGO_MD5D;
+                } else if (strcmp(optarg, "sha256") == 0) {
+                    algorithm = ALGO_SHA256;
+                } else if (strcmp(optarg, "sha256d") == 0) {
+                    algorithm = ALGO_SHA256D;
+                } else if (strcmp(optarg, "sha512") == 0) {
+                    algorithm = ALGO_SHA512;
+                } else if (strcmp(optarg, "sha512d") == 0) {
+                    algorithm = ALGO_SHA512D;
+                } else {
+                    fprintf(stderr, "Error: Invalid algorithm. Supported: md5, md5d, sha256, sha256d, sha512, sha512d\n");
+                    return 1;
+                }
+                break;
+            case 1000: /* --salt */
+                generate_salt_flag = 1;
+                break;
+            case 1001: /* --use-salt */
+                use_salt = optarg;
+                if (strlen(use_salt) != 32) {
+                    fprintf(stderr, "Error: Salt must be 32 characters long\n");
+                    return 1;
+                }
+                break;
             case 'h':
                 print_usage(argv[0]);
                 return 0;
@@ -130,7 +165,23 @@ int main(int argc, char *argv[]) {
                 return 1;
             }
             
-            return run_pow_mining(prev_hash, next_hash, difficulty, threads);
+            /* Handle salt generation and validation */
+            if (generate_salt_flag && use_salt) {
+                fprintf(stderr, "Error: Cannot specify both --salt and --use-salt\n");
+                return 1;
+            }
+            
+            char salt_buffer[33];
+            if (generate_salt_flag) {
+                generate_salt_hex(salt_buffer);
+                salt = salt_buffer;
+            } else if (use_salt) {
+                salt = use_salt;
+            } else {
+                salt = NULL;
+            }
+            
+            return run_pow_mining_with_options(prev_hash, next_hash, difficulty, threads, algorithm, salt);
 
         case MODE_CHECKSUM:
             if (!source_path) {
@@ -234,7 +285,7 @@ int main(int argc, char *argv[]) {
                     
                     /* Generate salt and salted checksum */
                     generate_salt(new_entry.salt);
-                    sha512_file_with_salt(result.filepath, new_entry.salt, new_entry.checksum);
+                    sha512_double_file_with_salt(result.filepath, new_entry.salt, new_entry.checksum);
                     
                     /* Calculate POW */
                     printf("Processing file: %s ... ", result.filepath);
@@ -294,7 +345,7 @@ int main(int argc, char *argv[]) {
                         
                         /* Generate salt and salted checksum */
                         generate_salt(new_entry.salt);
-                        sha512_file_with_salt(results[i].filepath, new_entry.salt, new_entry.checksum);
+                        sha512_double_file_with_salt(results[i].filepath, new_entry.salt, new_entry.checksum);
                         
                         /* Calculate POW */
                         printf("Processing file: %s ... ", results[i].filepath);

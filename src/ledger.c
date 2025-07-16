@@ -65,7 +65,7 @@ int write_ledger_header(const char *filename) {
         return -1;
     }
     
-    fprintf(file, "# ZenTransfer Ledger version 1.0\n");
+    fprintf(file, "# ZenTransfer Ledger/1.0\n");
     fprintf(file, "filename,size,checksum,salt,nonce,pow_hash,complexity\n");
     
     fclose(file);
@@ -254,6 +254,10 @@ int run_ledger_verification(const char *filename, int file_verify, int ignore_er
             return -1;
         }
         
+        /* Hash the current data to match what was used in POW calculation */
+        char current_hash[129];
+        sha512_hex(current_data, current_hash);
+        
         char prev_hash[129];
         if (i == 0) {
             memset(prev_hash, '0', 128);
@@ -263,7 +267,7 @@ int run_ledger_verification(const char *filename, int file_verify, int ignore_er
             prev_hash[128] = '\0';
         }
         
-        if (verify_pow_hash(prev_hash, current_data, entries[i].nonce, entries[i].pow_hash, entries[i].complexity)) {
+        if (verify_pow_hash(prev_hash, current_hash, entries[i].nonce, entries[i].pow_hash, entries[i].complexity)) {
             printf("POW OK");
             
             /* Check complexity */
