@@ -6,6 +6,7 @@
 #include <pthread.h>
 #include <openssl/md5.h>
 #include <openssl/sha.h>
+#include <openssl/rand.h>
 #include <time.h>
 #include <unistd.h>
 #include <stdatomic.h>
@@ -55,6 +56,7 @@ typedef struct {
     char filename[MAX_PATH_LEN];
     long size;
     char checksum[129];
+    char salt[33];
     uint64_t nonce;
     char pow_hash[129];
     int complexity;
@@ -116,6 +118,20 @@ void md5_file(const char *filepath, char *output) {
     output[32] = '\0';
 }
 
+void generate_salt(char *salt_hex) {
+    unsigned char salt_bytes[16];
+    
+    if (RAND_bytes(salt_bytes, 16) != 1) {
+        fprintf(stderr, "Error: Failed to generate cryptographically secure random salt\n");
+        exit(1);
+    }
+    
+    for (int i = 0; i < 16; i++) {
+        sprintf(salt_hex + (i * 2), "%02x", salt_bytes[i]);
+    }
+    salt_hex[32] = '\0';
+}
+
 void sha512_file(const char *filepath, char *output) {
     FILE *file = fopen(filepath, "rb");
     if (!file) {
@@ -125,6 +141,34 @@ void sha512_file(const char *filepath, char *output) {
     
     SHA512_CTX ctx;
     SHA512_Init(&ctx);
+    
+    unsigned char buffer[8192];
+    size_t bytes;
+    while ((bytes = fread(buffer, 1, sizeof(buffer), file)) > 0) {
+        SHA512_Update(&ctx, buffer, bytes);
+    }
+    fclose(file);
+    
+    unsigned char hash[SHA512_DIGEST_LENGTH];
+    SHA512_Final(hash, &ctx);
+    
+    for (int i = 0; i < SHA512_DIGEST_LENGTH; i++) {
+        sprintf(output + (i * 2), "%02x", hash[i]);
+    }
+    output[128] = '\0';
+}
+
+void sha512_file_with_salt(const char *filepath, const char *salt_hex, char *output) {
+    FILE *file = fopen(filepath, "rb");
+    if (!file) {
+        output[0] = '\0';
+        return;
+    }
+    
+    SHA512_CTX ctx;
+    SHA512_Init(&ctx);
+    
+    SHA512_Update(&ctx, salt_hex, 32);
     
     unsigned char buffer[8192];
     size_t bytes;
@@ -322,6 +366,11 @@ int read_last_ledger_entry(const char *ledger_file, ledger_entry_t *entry) {
     
     token = strtok(NULL, ",");
     if (!token) return 0;
+    strncpy(entry->salt, token, 32);
+    entry->salt[32] = '\0';
+    
+    token = strtok(NULL, ",");
+    if (!token) return 0;
     entry->nonce = strtoull(token, NULL, 10);
     
     token = strtok(NULL, ",");
@@ -345,7 +394,7 @@ void write_ledger_header(const char *ledger_file) {
     }
     
     fprintf(file, "# ZenTransfer Ledger version 1.0\n");
-    fprintf(file, "filename,size,checksum,nonce,pow_hash,complexity\n");
+    fprintf(file, "filename,size,checksum,salt,nonce,pow_hash,complexity\n");
     fclose(file);
 }
 
@@ -356,10 +405,11 @@ void append_ledger_entry(const char *ledger_file, const ledger_entry_t *entry) {
         return;
     }
     
-    fprintf(file, "%s,%ld,%s,%lu,%s,%d\n",
+    fprintf(file, "%s,%ld,%s,%s,%lu,%s,%d\n",
             entry->filename,
             entry->size,
             entry->checksum,
+            entry->salt,
             entry->nonce,
             entry->pow_hash,
             entry->complexity);
@@ -371,6 +421,8 @@ void create_null_entry(ledger_entry_t *entry) {
     entry->size = 0;
     memset(entry->checksum, '0', 128);
     entry->checksum[128] = '\0';
+    memset(entry->salt, '0', 32);
+    entry->salt[32] = '\0';
     entry->nonce = 0;
     memset(entry->pow_hash, '0', 128);
     entry->pow_hash[128] = '\0';
@@ -382,6 +434,8 @@ void create_start_entry(ledger_entry_t *entry, const char *start_hash) {
     entry->size = 0;
     memset(entry->checksum, '0', 128);
     entry->checksum[128] = '\0';
+    memset(entry->salt, '0', 32);
+    entry->salt[32] = '\0';
     entry->nonce = 0;
     strncpy(entry->pow_hash, start_hash, 128);
     entry->pow_hash[128] = '\0';
@@ -458,6 +512,11 @@ int read_all_ledger_entries(const char *ledger_file, ledger_entry_t **entries, i
         
         token = strtok(NULL, ",");
         if (!token) { free(line_copy); continue; }
+        strncpy((*entries)[*count].salt, token, 32);
+        (*entries)[*count].salt[32] = '\0';
+        
+        token = strtok(NULL, ",");
+        if (!token) { free(line_copy); continue; }
         (*entries)[*count].nonce = strtoull(token, NULL, 10);
         
         token = strtok(NULL, ",");
@@ -496,13 +555,13 @@ int verify_pow_hash(const char *prev_hash, const char *current_data, uint64_t no
     return strncmp(computed_hash, prefix, complexity) == 0;
 }
 
-int verify_file_checksum(const char *filepath, const char *expected_checksum) {
+int verify_file_checksum_with_salt(const char *filepath, const char *expected_checksum, const char *salt_hex) {
     if (!is_regular_file(filepath)) {
         return -1;
     }
     
     char computed_checksum[129];
-    sha512_file(filepath, computed_checksum);
+    sha512_file_with_salt(filepath, salt_hex, computed_checksum);
     
     if (computed_checksum[0] == '\0') {
         return -1;
@@ -622,7 +681,7 @@ int run_ledger_verification(const char *ledger_file, int file_verify, int ignore
             }
             
             if (file_verify) {
-                int file_result = verify_file_checksum(entries[i].filename, entries[i].checksum);
+                int file_result = verify_file_checksum_with_salt(entries[i].filename, entries[i].checksum, entries[i].salt);
                 if (file_result == -1) {
                     printf(", FILE MISSING");
                     stats.missing_files++;
@@ -997,7 +1056,9 @@ int main(int argc, char *argv[]) {
                 ledger_entry_t entry;
                 strncpy(entry.filename, files[i].filepath, MAX_PATH_LEN - 1);
                 entry.size = files[i].size;
-                strncpy(entry.checksum, files[i].sha512, 128);
+                
+                generate_salt(entry.salt);
+                sha512_file_with_salt(files[i].filepath, entry.salt, entry.checksum);
                 entry.checksum[128] = '\0';
                 entry.complexity = difficulty;
                 

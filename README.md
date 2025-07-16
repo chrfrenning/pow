@@ -1,6 +1,10 @@
-# POW Ledger
+# ZenTransfer Ledger Utility
 
-A command line utility in C that combines file-checksumming with proof-of-work mining for building trusted ledgers.
+A command line utility in C that combines file-checksumming with 
+proof-of-work mining for building trusted ledgers, and is a
+building block for building a decentralized, socially validated,
+proof-of-work based photo authenticity system for Web 3.0.
+
 
 ## Features
 
